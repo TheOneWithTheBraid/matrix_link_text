@@ -1,4 +1,5 @@
 //  Copyright (c) 2019 Aleksander Woźniak
+//  Copyright (c) 2022 Famedly GmbH
 //  Licensed under Apache License v2.0
 
 import 'package:flutter/material.dart';
@@ -14,28 +15,27 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: MyHomePage(title: 'LinkText Demo'),
+      home: const MyHomePage(),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  MyHomePage({Key key, this.title}) : super(key: key);
-
-  final String title;
+  const MyHomePage({Key? key}) : super(key: key);
 
   @override
   _MyHomePageState createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final String _text = 'Lorem ipsum https://flutter.dev\nhttps://pub.dev dolor https://google.com sit amet';
+  final String _text =
+      'Lorem ipsum https://flutter.dev\nhttps://pub.dev dolor https://google.com sit amet\nCustom handler: https://example.com';
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.title),
+        title: Text('LinkText Demo'),
       ),
       body: Center(
         child: Padding(
@@ -80,7 +80,18 @@ class _MyHomePageState extends State<MyHomePage> {
           style: TextStyle().copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12.0),
-        LinkText(text: _text, textAlign: TextAlign.center),
+        LinkText(
+          text: _text,
+          textAlign: TextAlign.center,
+          beforeLaunch: (uri) {
+            if (uri.host == 'example.com') {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('This link is handled by the app...')));
+              return false;
+            }
+            return null;
+          },
+        ),
       ],
     );
   }

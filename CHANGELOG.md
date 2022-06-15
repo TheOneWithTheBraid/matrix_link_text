@@ -1,3 +1,12 @@
+## [1.1.0]
+- Update dependencies
+- Add linting
+- Migrate example to null-safety
+- Deprecate [onLinkTap] in favor of [beforeLaunch]
+- Update known URI schemes and TLDs
+- Refactor code
+- Semantic adjustments using `Link` widget
+
 ## [1.0.2]
 - Add `CleanRichText.maxLines` and `LinkText.maxLines`
 

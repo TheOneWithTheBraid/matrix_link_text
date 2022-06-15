@@ -1,126 +1,76 @@
 //  Copyright (c) 2019 Aleksander Woźniak
 //  Copyright (c) 2020 Sorunome
+//  Copyright (c) 2022 Famedly GmbH
 //  Licensed under Apache License v2.0
 
 library matrix_link_text;
 
+import 'dart:async';
 import 'dart:math';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter/foundation.dart';
+import 'package:url_launcher/link.dart';
 
-import 'tlds.dart';
-import 'schemes.dart';
+import 'src/clean_rich_text.dart';
+import 'src/link_widget.dart';
+import 'src/tlds.dart';
+import 'src/schemes.dart';
 
-typedef LinkTapHandler = void Function(String);
+export 'src/clean_rich_text.dart';
 
-class LinkTextSpan extends TextSpan {
-  // Beware!
-  //
-  // This class is only safe because the TapGestureRecognizer is not
-  // given a deadline and therefore never allocates any resources.
-  //
-  // In any other situation -- setting a deadline, using any of the less trivial
-  // recognizers, etc -- you would have to manage the gesture recognizer's
-  // lifetime and call dispose() when the TextSpan was no longer being rendered.
-  //
-  // Since TextSpan itself is @immutable, this means that you would have to
-  // manage the recognizer from outside the TextSpan, e.g. in the State of a
-  // stateful widget that then hands the recognizer to the TextSpan.
-  final String url;
-  final LinkTapHandler? onLinkTap;
+typedef LinkTapHandler = void Function(String uri);
 
+/// predicates whether the [uri] is handled internally by the app
+///
+/// returns [true] in case the link is being handled by the app
+/// returns [false] in case the [Link] widget should handle the [uri]
+typedef LinkHandlerPredicate = FutureOr<bool?> Function(Uri uri);
+
+@Deprecated('Use [LinkWidgetSpan] instead.')
+class LinkTextSpan extends LinkWidgetSpan {
   LinkTextSpan(
       {TextStyle? style,
-      required this.url,
+      required String url,
       String? text,
-      this.onLinkTap,
+      LinkTapHandler? onLinkTap,
       List<InlineSpan>? children})
       : super(
+            uri: Uri.parse(url),
+            text: text,
+            children: children,
+            style: style,
+            predicate: onLinkTap == null
+                ? null
+                : (uri) {
+                    onLinkTap(uri.toString());
+                    return true;
+                  });
+}
+
+class LinkWidgetSpan extends WidgetSpan {
+  final Uri uri;
+
+  LinkWidgetSpan(
+      {TextStyle? style,
+      TextStyle? hoverStyle,
+      required this.uri,
+      String? text,
+      LinkHandlerPredicate? predicate,
+      List<InlineSpan>? children})
+      : assert((text != null) ^ (children != null),
+            'You must either provide [text] or [children], never both.'),
+        super(
+          child: LinkWidget(
+            uri: uri,
+            predicate: predicate,
+            style: style,
+            hoverStyle: hoverStyle,
+            child: text != null
+                ? Text(text)
+                : Text.rich(TextSpan(children: children)),
+          ),
           style: style,
-          text: text ?? '',
-          children: children ?? <InlineSpan>[],
-          recognizer: TapGestureRecognizer()
-            ..onTap = () async {
-              if (onLinkTap != null) {
-                onLinkTap(url);
-                return;
-              }
-              if (await canLaunch(url)) {
-                await launch(url);
-              } else {
-                throw 'Could not launch $url';
-              }
-            },
-        ) {
-    _fixRecognizer(this, recognizer!);
-  }
-
-  void _fixRecognizer(TextSpan textSpan, GestureRecognizer recognizer) {
-    if (textSpan.children?.isEmpty ?? true) {
-      return;
-    }
-    final fixedChildren = <InlineSpan>[];
-    for (final child in textSpan.children!) {
-      if (child is TextSpan && child.recognizer == null) {
-        _fixRecognizer(child, recognizer);
-        fixedChildren.add(TextSpan(
-          text: child.text,
-          style: child.style,
-          recognizer: recognizer,
-          children: child.children,
-        ));
-      } else {
-        fixedChildren.add(child);
-      }
-    }
-    textSpan.children!.clear();
-    textSpan.children!.addAll(fixedChildren);
-  }
-}
-
-/// Like Text.rich only that it also correctly disposes of all recognizers
-class CleanRichText extends StatefulWidget {
-  final InlineSpan child;
-  final TextAlign? textAlign;
-  final int? maxLines;
-
-  CleanRichText(this.child, {Key? key, this.textAlign, this.maxLines})
-      : super(key: key);
-
-  _CleanRichTextState createState() => _CleanRichTextState();
-}
-
-class _CleanRichTextState extends State<CleanRichText> {
-  void _disposeTextspan(TextSpan textSpan) {
-    textSpan.recognizer?.dispose();
-    if (textSpan.children != null) {
-      for (final child in textSpan.children!) {
-        if (child is TextSpan) {
-          _disposeTextspan(child);
-        }
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
-    if (widget.child is TextSpan) {
-      _disposeTextspan(widget.child as TextSpan);
-    }
-  }
-
-  @override
-  Widget build(BuildContext build) {
-    return Text.rich(
-      widget.child,
-      textAlign: widget.textAlign,
-      maxLines: widget.maxLines,
-    );
-  }
+        );
 }
 
 // whole regex:
@@ -147,24 +97,13 @@ TextSpan LinkTextSpans(
     {required String text,
     TextStyle? textStyle,
     TextStyle? linkStyle,
-    LinkTapHandler? onLinkTap,
+    TextStyle? hoverStyle,
+    @Deprecated('Use [beforeLaunch] instead.') LinkTapHandler? onLinkTap,
+    LinkHandlerPredicate? beforeLaunch,
     ThemeData? themeData}) {
-  final _launchUrl = (String url) async {
-    if (onLinkTap != null) {
-      onLinkTap(url);
-      return;
-    }
-
-    if (await canLaunch(url)) {
-      await launch(url);
-    } else {
-      throw 'Could not launch $url';
-    }
-  };
-
   textStyle ??= themeData?.textTheme.bodyText2;
   linkStyle ??= themeData?.textTheme.bodyText2?.copyWith(
-    color: themeData.accentColor,
+    color: themeData.colorScheme.secondary,
     decoration: TextDecoration.underline,
   );
 
@@ -174,7 +113,7 @@ TextSpan LinkTextSpans(
     return TextSpan(
       text: text,
       style: textStyle,
-      children: [],
+      children: const [],
     );
   }
 
@@ -204,7 +143,7 @@ TextSpan LinkTextSpans(
     var curEnd = 0; // the current chunk end
     var lastEnd = 0; // the last chunk end, where we stopped parsing
     var abort = false; // should we abort and fall back to the slow method?
-    final processChunk = () {
+    void processChunk() {
       if (textParts == null || links == null) {
         abort = true;
         links = null;
@@ -237,11 +176,12 @@ TextSpan LinkTextSpans(
       textParts!.addAll(fragmentTextParts);
       // and save the lastEnd for later
       lastEnd = curEnd;
-    };
+    }
+
     for (final e in estimateMatches) {
-      const CHUNK_SIZE = 120;
-      final start = max(e.start - CHUNK_SIZE, 0);
-      final end = min(e.start + CHUNK_SIZE, text.length);
+      const chunkSize = 120;
+      final start = max(e.start - chunkSize, 0);
+      final end = min(e.start + chunkSize, text.length);
       if (start < curEnd) {
         // merge blocks
         curEnd = end;
@@ -274,7 +214,7 @@ TextSpan LinkTextSpans(
     return TextSpan(
       text: text,
       style: textStyle,
-      children: [],
+      children: const [],
     );
   }
 
@@ -282,7 +222,7 @@ TextSpan LinkTextSpans(
   final textSpans = <InlineSpan>[];
 
   int i = 0;
-  textParts!.forEach((part) {
+  for (var part in textParts!) {
     textSpans.add(TextSpan(text: part, style: textStyle));
 
     if (i < links!.length) {
@@ -295,46 +235,45 @@ TextSpan LinkTextSpans(
       var valid = true;
       if (scheme?.isNotEmpty ?? false) {
         // we have to validate the scheme
-        valid = ALL_SCHEMES.contains(scheme!.toLowerCase());
+        valid = allSchemes.contains(scheme!.toLowerCase());
       }
       if (valid && (tldUrl?.isNotEmpty ?? false)) {
         // we have to validate if the tld exists
-        valid = ALL_TLDS.contains(tldUrl!.toLowerCase());
-        link = 'https://' + link;
+        valid = allTlds.contains(tldUrl!.toLowerCase());
+        link = 'https://$link';
       }
       if (valid && (tldEmail?.isNotEmpty ?? false)) {
         // we have to validate if the tld exists
-        valid = ALL_TLDS.contains(tldEmail!.toLowerCase());
-        link = 'mailto:' + link;
+        valid = allTlds.contains(tldEmail!.toLowerCase());
+        link = 'mailto:$link';
       }
+      final uri = Uri.parse(link);
+
       if (valid) {
-        if (kIsWeb) {
-          // on web recognizer in TextSpan does not work properly, so we use normal text w/ inkwell
-          textSpans.add(
-            WidgetSpan(
-              child: InkWell(
-                onTap: () => _launchUrl(link),
-                child: Text(linkText, style: linkStyle),
-              ),
-            ),
-          );
-        } else {
-          textSpans.add(
-            LinkTextSpan(
-              text: linkText,
-              style: linkStyle,
-              url: link,
-              onLinkTap: _launchUrl,
-            ),
-          );
-        }
+        textSpans.add(
+          LinkWidgetSpan(
+            text: linkText,
+            style: linkStyle,
+            hoverStyle: hoverStyle,
+            uri: uri,
+            predicate: beforeLaunch ??
+                // ignore: deprecated_member_use_from_same_package
+                (onLinkTap != null
+                    ? (uri) {
+                        // ignore: deprecated_member_use_from_same_package
+                        onLinkTap.call(uri.toString());
+                        return false;
+                      }
+                    : null),
+          ),
+        );
       } else {
         textSpans.add(TextSpan(text: linkText, style: textStyle));
       }
 
       i++;
     }
-  });
+  }
   return TextSpan(text: '', children: textSpans);
 }
 
@@ -342,8 +281,11 @@ class LinkText extends StatelessWidget {
   final String text;
   final TextStyle? textStyle;
   final TextStyle? linkStyle;
+  final TextStyle? hoverStyle;
   final TextAlign? textAlign;
+  @Deprecated('Use [beforeLaunch] instead.')
   final LinkTapHandler? onLinkTap;
+  final LinkHandlerPredicate? beforeLaunch;
   final int? maxLines;
 
   const LinkText({
@@ -351,8 +293,10 @@ class LinkText extends StatelessWidget {
     required this.text,
     this.textStyle,
     this.linkStyle,
+    this.hoverStyle,
     this.textAlign = TextAlign.start,
-    this.onLinkTap,
+    @Deprecated('Use [beforeLaunch] instead.') this.onLinkTap,
+    this.beforeLaunch,
     this.maxLines,
   }) : super(key: key);
 
@@ -363,7 +307,18 @@ class LinkText extends StatelessWidget {
         text: text,
         textStyle: textStyle,
         linkStyle: linkStyle,
+        hoverStyle: hoverStyle,
+        // ignore: deprecated_member_use_from_same_package
         onLinkTap: onLinkTap,
+        beforeLaunch: beforeLaunch ??
+            // ignore: deprecated_member_use_from_same_package
+            (onLinkTap != null
+                ? (uri) {
+                    // ignore: deprecated_member_use_from_same_package
+                    onLinkTap?.call(uri.toString());
+                    return false;
+                  }
+                : null),
         themeData: Theme.of(context),
       ),
       textAlign: textAlign,

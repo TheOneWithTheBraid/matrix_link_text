@@ -4,13 +4,13 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:punycode/punycode.dart';
 
-const ICAAN_URL = 'https://data.iana.org/TLD/tlds-alpha-by-domain.txt';
-const OUT_FILE = './lib/tlds.dart';
+const icaanUrl = 'https://data.iana.org/TLD/tlds-alpha-by-domain.txt';
+const outFile = './lib/src/tlds.dart';
 
 void main() async {
-  final res = utf8.decode((await http.get(Uri.parse(ICAAN_URL))).bodyBytes);
-  final file = await File(OUT_FILE).open(mode: FileMode.write);
-  await file.writeString('const ALL_TLDS = {\n');
+  final res = utf8.decode((await http.get(Uri.parse(icaanUrl))).bodyBytes);
+  final file = await File(outFile).open(mode: FileMode.write);
+  await file.writeString('const allTlds = {\n');
   for (var tld in res.split('\n')) {
     tld = tld.trim().toLowerCase();
     if (tld.startsWith('#') || tld.isEmpty) {
